@@ -79,7 +79,22 @@ st.markdown(
     f"repositorio explican el **{pct(repo_caida)}** de esa pérdida."
 )
 
-anio = st.segmented_control("Año", YEARS, default=2025, key="anio") or 2025
+ESC = [("roi", "ROI publicado"), ("roi_repo50", "Repositorio al 50 %"), ("roi_repo25", "Repositorio al 25 %"),
+       ("roi_repo10", "Repositorio al 10 %"), ("roi_sin_repo", "Sin repositorio"), ("roi_sin_desc", "Sin descargas digitales")]
+MET = {"ROI (€ por €)": ("roi", "€"), "Valor total (M€)": ("valor_meur", "M€"), "Coste total (M€)": ("coste", "M€")}
+TODAS = sorted(LIBS.biblioteca.unique())
+FAMILIAS = sorted(SERV.familia.unique())
+with st.sidebar:
+    st.header("Filtros")
+    anio = st.radio("Año", YEARS, index=2, horizontal=True)
+    sel_libs = st.multiselect("Bibliotecas", TODAS, default=TODAS) or TODAS
+    metrica = st.radio("Métrica del benchmarking", list(MET))
+    bloques_sel = st.multiselect("Bloques de valor (BUS)", BLOQUES, default=BLOQUES) or BLOQUES
+    familias_sel = st.multiselect("Familias de servicio (BUS)", FAMILIAS, default=FAMILIAS) or FAMILIAS
+    esc_sel = st.multiselect("Escenarios de sensibilidad", [x[1] for x in ESC], default=[x[1] for x in ESC]) or [x[1] for x in ESC]
+    st.caption("Los filtros afectan a los gráficos y tablas. Los indicadores, el puesto y la lectura usan siempre las seis bibliotecas y todos los servicios.")
+col, unidad = MET[metrica]
+LF = LIBS[LIBS.biblioteca.isin(sel_libs)]
 i = YEARS.index(anio)
 act, prev = BUS.loc[anio], (BUS.loc[YEARS[i - 1]] if i else None)
 
@@ -105,29 +120,30 @@ st.header("Benchmarking con las otras cinco bibliotecas")
 st.caption("El coste anual de cada biblioteca se mueve en un rango estrecho. El valor generado varía varias veces más, y con él el ROI.")
 a, b = st.columns(2)
 
-orden = LIBS[LIBS.anio == anio].sort_values("roi", ascending=False).biblioteca.tolist()
+orden = LF[LF.anio == anio].sort_values(col, ascending=False).biblioteca.tolist()
 f1 = go.Figure()
 for k, y in enumerate(YEARS):
-    d = LIBS[LIBS.anio == y].set_index("biblioteca").loc[orden]
-    f1.add_bar(x=orden, y=d.roi, name=str(y), marker_color=COL[k], opacity=1 if y == anio else 0.35,
-               text=[n(v) if y == anio else "" for v in d.roi], textposition="outside",
-               hovertemplate="%{x} · " + str(y) + "<br>ROI %{y:.1f} €<extra></extra>")
-f1.add_hline(y=LIBS[LIBS.anio == anio].mediana.iloc[0], line_dash="dash", annotation_text="mediana")
-a.subheader("ROI por biblioteca")
+    d = LF[LF.anio == y].set_index("biblioteca").loc[orden]
+    f1.add_bar(x=orden, y=d[col], name=str(y), marker_color=COL[k], opacity=1 if y == anio else 0.35,
+               text=[n(v) if y == anio else "" for v in d[col]], textposition="outside",
+               hovertemplate="%{x} · " + str(y) + "<br>" + metrica + ": %{y:.1f}<extra></extra>")
+if col == "roi":
+    f1.add_hline(y=LIBS[LIBS.anio == anio].mediana.iloc[0], line_dash="dash", annotation_text="mediana de las seis")
+a.subheader(metrica.split(" (")[0] + " por biblioteca")
 a.plotly_chart(fig_base(f1, barmode="group"), width="stretch")
 
 f2 = go.Figure()
-for bib in LIBS.biblioteca.unique():
+for bib in sel_libs:
     d = LIBS[LIBS.biblioteca == bib]
     me = bib == "BUS"
-    f2.add_scatter(x=d.anio, y=d.roi, mode="lines+markers+text", name=bib, line=dict(width=4 if me else 2, color=COL[0] if me else None),
-                   text=["", "", bib], textposition="middle right", hovertemplate=bib + " %{x}: %{y:.1f} €<extra></extra>")
+    f2.add_scatter(x=d.anio, y=d[col], mode="lines+markers+text", name=bib, line=dict(width=4 if me else 2, color=COL[0] if me else None),
+                   text=["", "", bib], textposition="middle right", hovertemplate=bib + " %{x}: %{y:.1f} " + unidad + "<extra></extra>")
 f2.update_xaxes(tickvals=YEARS)
 b.subheader("Trayectorias 2023-2025")
 b.plotly_chart(fig_base(f2, showlegend=False), width="stretch")
 
 a, b = st.columns(2)
-d = LIBS[LIBS.anio == anio]
+d = LF[LF.anio == anio]
 f3 = go.Figure()
 xmax = LIBS.coste.max() * 1.1
 for k in (10, 25, 50, 100):
@@ -153,9 +169,12 @@ for bib, g in LIBS.groupby("biblioteca"):
                   "Var. valor (%)": (g.valor_meur.iloc[2] / g.valor_meur.iloc[0] - 1) * 100,
                   "Var. coste (%)": (g.coste.iloc[2] / g.coste.iloc[0] - 1) * 100})
 bench = pd.DataFrame(bench).sort_values("ROI 2025", ascending=False).set_index("Biblioteca")
+bench = bench.loc[[x for x in bench.index if x in sel_libs]]
+ROI_COLS = ["ROI 2023", "ROI 2024", "ROI 2025"]
+ROI_MAX = bench[ROI_COLS].max().max()
 b.subheader("Mapa de ROI y estabilidad")
 b.caption("CV: coeficiente de variación del ROI en los tres años. Las variaciones comparan 2025 con 2023.")
-b.dataframe(bench.style.format("{:.1f}").background_gradient(subset=["ROI 2023", "ROI 2024", "ROI 2025"], cmap="Blues"),
+b.dataframe(bench.style.format("{:.1f}").map(lambda v: f"background-color: rgba(47,111,219,{0.08 + 0.5 * v / ROI_MAX:.2f})", subset=ROI_COLS),
             width="stretch")
 
 # ------------------------------------------------------------------ composición
@@ -164,7 +183,7 @@ st.caption("Cinco bloques sobre catorce servicios. Los diez servicios restantes 
 a, b = st.columns(2)
 vista = a.segmented_control("Vista", ["M€", "% del total"], default="M€", key="vista") or "M€"
 f4 = go.Figure()
-for bl in BLOQUES:
+for bl in bloques_sel:
     v = BUS[bl] if vista == "M€" else BUS[bl] / BUS.valor * 100
     f4.add_bar(x=[str(y) for y in YEARS], y=v, name=bl, marker_color=BCOL[bl],
                hovertemplate=bl + "<br>%{y:.1f}<extra></extra>")
@@ -187,10 +206,10 @@ b.plotly_chart(fig_base(f5), width="stretch")
 # ------------------------------------------------------------------ sensibilidad
 st.header("Sensibilidad del ROI")
 st.caption("El indicador depende en gran medida de una descarga valorada al precio de un artículo. La gráfica recalcula el ROI de la BUS si ese servicio pesara menos o no existiera. Escala logarítmica.")
-esc = [("roi", "ROI publicado"), ("roi_repo50", "Repositorio al 50 %"), ("roi_repo25", "Repositorio al 25 %"),
-       ("roi_repo10", "Repositorio al 10 %"), ("roi_sin_repo", "Sin repositorio"), ("roi_sin_desc", "Sin descargas digitales")]
 f6 = go.Figure()
-for k, (campo, nombre) in enumerate(esc):
+for k, (campo, nombre) in enumerate(ESC):
+    if nombre not in esc_sel:
+        continue
     f6.add_scatter(x=YEARS, y=BUS[campo], mode="lines+markers", name=nombre, line=dict(width=4 if k == 0 else 2, color=COL[k % 6]),
                    hovertemplate=nombre + " %{x}: %{y:.2f} €<extra></extra>")
 f6.add_hline(y=1, line_dash="dash", line_color="#d1495b", annotation_text="umbral de rentabilidad (ROI = 1)")
@@ -205,8 +224,12 @@ st.caption("Volumen = valor del servicio dividido entre su valor unitario consen
 ACT = [("S.0.1", "Libros prestados"), ("S.0.5", "Descargas de artículos"), ("S.0.4", "Descargas de libros electrónicos"),
        ("S.0.6", "Descargas del repositorio"), ("S.12", "Horas de salas de estudio"), ("S.0.9", "Informes de calidad"),
        ("S.11", "Horas de formación de bibliotecarios"), ("S.13", "Uso de ordenadores")]
+FAM = SERV.drop_duplicates("codigo").set_index("codigo").familia
+ACT_F = [(c_, nm) for c_, nm in ACT if FAM[c_] in familias_sel]
+if not ACT_F:
+    st.info("Ningún servicio de esta selección tiene indicador de actividad estimada.")
 cols = st.columns(4)
-for k, (cod, nombre) in enumerate(ACT):
+for k, (cod, nombre) in enumerate(ACT_F):
     g = SERV[SERV.codigo == cod].sort_values("anio")
     v25, var = g.volumen.iloc[-1], (g.volumen.iloc[-1] / g.volumen.iloc[0] - 1) * 100
     with cols[k % 4]:
@@ -219,12 +242,13 @@ for k, (cod, nombre) in enumerate(ACT):
 
 # ------------------------------------------------------------------ servicios
 st.header("Los catorce servicios de la BUS")
-t = SERV.pivot_table(index=["codigo", "servicio"], columns="anio", values="valor_eur").reset_index()
-t.columns = ["Cód.", "Servicio", "2023 (k€)", "2024 (k€)", "2025 (k€)"]
+t = SERV.pivot_table(index=["codigo", "servicio", "familia"], columns="anio", values="valor_eur").reset_index()
+t.columns = ["Cód.", "Servicio", "Familia", "2023 (k€)", "2024 (k€)", "2025 (k€)"]
 for col in ("2023 (k€)", "2024 (k€)", "2025 (k€)"):
     t[col] = t[col] / 1000
 t["Var. 23-25 (%)"] = (t["2025 (k€)"] / t["2023 (k€)"] - 1) * 100
 t["Cuota 2025 (%)"] = t["2025 (k€)"] / t["2025 (k€)"].sum() * 100
+t = t[t.Familia.isin(familias_sel)]
 q = st.text_input("Buscar servicio")
 if q:
     t = t[t.Servicio.str.contains(q, case=False) | t["Cód."].str.contains(q, case=False)]
