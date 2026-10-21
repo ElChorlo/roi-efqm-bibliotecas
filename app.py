@@ -87,7 +87,7 @@ act, prev = BUS.loc[anio], (BUS.loc[YEARS[i - 1]] if i else None)
 def delta(campo, inv=False):
     if prev is None:
         return None
-    return pct((act[campo] / prev[campo] - 1) * 100, 1, True)
+    return pct((act[campo] / prev[campo] - 1) * 100, 1, True).replace("−", "-")
 
 
 # ------------------------------------------------------------------ resumen
@@ -98,7 +98,7 @@ c[0].metric("ROI publicado (€ por €)", n(act.roi), delta("roi"))
 c[1].metric("Valor total (M€)", n(act.valor), delta("valor"))
 c[2].metric("Coste total (M€)", n(act.coste), delta("coste"), delta_color="inverse")
 c[3].metric("ROI sin repositorio", n(act.roi_sin_repo), delta("roi_sin_repo"))
-c[4].metric("Puesto entre seis bibliotecas", f"{int(act.puesto)}.º", f"{n(act.ratio, 2)}× la media del resto", delta_color="off")
+c[4].metric("Puesto entre seis bibliotecas", f"{int(act.puesto)}.º", f"{n(act.ratio, 2)}× la media del resto", delta_color="off", delta_arrow="off")
 
 # ------------------------------------------------------------------ benchmarking
 st.header("Benchmarking con las otras cinco bibliotecas")
@@ -210,7 +210,7 @@ for k, (cod, nombre) in enumerate(ACT):
     g = SERV[SERV.codigo == cod].sort_values("anio")
     v25, var = g.volumen.iloc[-1], (g.volumen.iloc[-1] / g.volumen.iloc[0] - 1) * 100
     with cols[k % 4]:
-        st.metric(nombre, f"{n(v25 / 1e6, 2)} M" if v25 >= 1e6 else n(v25, 0), pct(var, 1, True) + " frente a 2023")
+        st.metric(nombre, f"{n(v25 / 1e6, 2)} M" if v25 >= 1e6 else n(v25, 0), pct(var, 1, True).replace("−", "-") + " frente a 2023")
         fs = go.Figure(go.Scatter(x=g.anio, y=g.indice, mode="lines+markers", line=dict(color="#d1495b" if var < 0 else COL[2], width=2),
                                   hovertemplate="%{x}: índice %{y:.0f}<extra></extra>"))
         fs.add_hline(y=100, line_dash="dot", line_color="gray")
